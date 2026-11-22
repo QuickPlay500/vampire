@@ -9,17 +9,24 @@ import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.features.Feature
 import com.github.noamm9.utils.ChatUtils
+import com.github.noamm9.ui.utils.Animation.Companion.easeInOutCubic
+import com.github.noamm9.utils.ActionUtils.waitTicks
 import com.github.noamm9.utils.ChatUtils.unformattedText
+import com.github.noamm9.utils.MathUtils.lerp
 import com.github.noamm9.utils.PlayerUtils
 import com.github.noamm9.utils.ThreadUtils.scheduledTask
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.location.WorldType
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper
 import net.minecraft.client.KeyMapping
 import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket
 import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket
 import net.minecraft.world.entity.decoration.ArmorStand
+import kotlin.math.min
 
 /**
  * Riftstalker Bloodfiend (Vampire Slayer) helper.
@@ -57,6 +64,9 @@ object VampireSlayerHelper: Feature(
     private val impelDelay by SliderSetting("Impel Delay", 2, 0, 20, 1, " ticks")
         .withDescription("Ticks to wait before reacting to an order. Tier IV only gives you 2 seconds (40 ticks).")
         .showIf { autoImpel.value }
+    private val rotationTime by SliderSetting("Rotation Time", 150, 0, 500, 1, " ms")
+        .withDescription("Time (ms) to rotate up/down for CLICK UP and CLICK DOWN, and the same again to rotate back. &eSet to 0 to snap instantly.")
+        .showIf { autoImpel.value }
 
     private val autoStake by ToggleSetting("Auto Steak Stake", true).section("Steak Stake")
         .withDescription("Switches to the Steak Stake in your hotbar once the boss is low enough to be staked.")
@@ -80,6 +90,7 @@ object VampireSlayerHelper: Feature(
     private var twinclawsHandled = false
     private var impelLockedUntil = 0L
     private var stakeHandled = false
+    private var rotationJob: Job? = null
     private val seenDebugNames = mutableSetOf<String>()
 
     override fun init() {
@@ -176,13 +187,31 @@ object VampireSlayerHelper: Feature(
     private fun clickWithPitch(pitch: Float) {
         val prevPitch = player.xRot
         busy = true
-        PlayerUtils.rotate(player.yRot, pitch)
-        scheduledTask(1) {
-            PlayerUtils.rightClick()
-            scheduledTask(2) {
-                PlayerUtils.rotate(player.yRot, prevPitch)
+        rotationJob = scope.launch {
+            try {
+                rotatePitch(pitch)
+                waitTicks(1, PlayerUtils::rightClick)
+                waitTicks(2)
+                rotatePitch(prevPitch)
+            } finally {
                 busy = false
             }
+        }
+    }
+
+    /** Eases only the pitch like Auto I4 does, so the player keeps control of the yaw while it rotates. */
+    private suspend fun rotatePitch(target: Float) {
+        val duration = rotationTime.value.toDouble()
+        if (duration <= 0) return PlayerUtils.rotate(player.yRot, target)
+
+        val startPitch = player.xRot
+        val startTime = System.currentTimeMillis()
+        while (true) {
+            val progress = min((System.currentTimeMillis() - startTime) / duration, 1.0)
+            val pitch = lerp(startPitch, target, easeInOutCubic(progress).toFloat()).toFloat()
+            PlayerUtils.rotate(player.yRot, pitch)
+            if (progress >= 1) break
+            delay(1)
         }
     }
 
@@ -235,6 +264,7 @@ object VampireSlayerHelper: Feature(
 
     override fun onDisable() {
         super.onDisable()
+        rotationJob?.cancel()
         reset()
     }
 }
