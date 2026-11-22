@@ -77,9 +77,13 @@ object VampireSlayerHelper: Feature(
         .withDescription("Prints titles and boss nametags to chat, to check the detection strings.")
 
     private const val BOSS_NAME = "Bloodfiend"
-    private val impelRegex = Regex("CLICK UP|CLICK DOWN|JUMP|SNEAK")
-    /** The order stays visible (nametag + repeated titles) for up to 2.5s, so ignore further triggers for longer than that. */
-    private const val IMPEL_LOCK_TICKS = 60
+    /**
+     * The order comes as a title that counts down every 2 ticks, e.g. "Impel: CLICK UP 2.0s".
+     * The "IMPEL 0.5s" on the boss nametag is only the warning before it and never contains the order.
+     */
+    private val impelRegex = Regex("(CLICK UP|CLICK DOWN|JUMP|SNEAK)(?:\\s+(\\d+(?:\\.\\d+)?)S)?")
+    /** Fallback for a title without countdown: the same order counts as new after it was gone this long. */
+    private const val IMPEL_GONE_TICKS = 5
     /** Added to the boss name once it can be staked, same check as Skyblocker's StakeIndicator. */
     private const val STAKE_MARKER = "҉"
 
@@ -88,7 +92,11 @@ object VampireSlayerHelper: Feature(
     private var lastMelonTick = 0L
     private var ticks = 0L
     private var twinclawsHandled = false
-    private var impelLockedUntil = 0L
+    private var lastImpel: String? = null
+    private var lastImpelSeenTick = 0L
+    private var lastImpelRemaining: Double? = null
+    private var impelRunning = false
+    private var pendingImpel: String? = null
     private var stakeHandled = false
     private var rotationJob: Job? = null
     private val seenDebugNames = mutableSetOf<String>()
@@ -112,9 +120,6 @@ object VampireSlayerHelper: Feature(
             if (autoStake.value) checkStake(boss)
             if (autoMelon.value) checkMelon()
             if (autoIce.value) checkTwinclaws(stands)
-            if (autoImpel.value) {
-                stands.firstNotNullOfOrNull { impelRegex.find(it.name.unformattedText.uppercase())?.value }?.let(::handleImpel)
-            }
         }
 
         register<MainThreadPacketReceivedEvent.Post> {
@@ -127,7 +132,8 @@ object VampireSlayerHelper: Feature(
 
             if (debug.value) ChatUtils.modMessage("&7[Vampire] title: &f$text")
             if (! autoImpel.value) return@register
-            impelRegex.find(text.uppercase())?.value?.let(::handleImpel)
+            val match = impelRegex.find(text.uppercase()) ?: return@register
+            handleImpel(match.groupValues[1], match.groupValues[2].toDoubleOrNull())
         }
     }
 
@@ -168,23 +174,50 @@ object VampireSlayerHelper: Feature(
         }
     }
 
-    private fun handleImpel(order: String) {
-        if (ticks < impelLockedUntil) return
-        impelLockedUntil = ticks + impelDelay.value + IMPEL_LOCK_TICKS
+    /**
+     * Called on every title update of an order. Within one Impel the countdown only goes down, so a different order
+     * or a countdown that went back up is a new Impel (Tier V sends them back to back, even the same order twice).
+     * A new order during a running one is queued.
+     */
+    private fun handleImpel(order: String, remaining: Double?) {
+        val prevRemaining = lastImpelRemaining
+        val isNew = when {
+            order != lastImpel -> true
+            remaining != null && prevRemaining != null -> remaining > prevRemaining
+            else -> ticks - lastImpelSeenTick > IMPEL_GONE_TICKS
+        }
+        lastImpel = order
+        lastImpelSeenTick = ticks
+        lastImpelRemaining = remaining
+        if (! isNew) return
+
+        if (impelRunning) return run { pendingImpel = order }
+        runImpel(order)
+    }
+
+    private fun runImpel(order: String) {
+        impelRunning = true
         if (debug.value) ChatUtils.modMessage("&7[Vampire] Impel: &e$order")
 
         scheduledTask(impelDelay.value) {
             when (order) {
-                "CLICK UP" -> clickWithPitch(- 90f)
-                "CLICK DOWN" -> clickWithPitch(90f)
-                "JUMP" -> holdKey(mc.options.keyJump, 3)
-                "SNEAK" -> holdKey(mc.options.keyShift, 4)
+                "CLICK UP" -> clickWithPitch(- 90f, ::finishImpel)
+                "CLICK DOWN" -> clickWithPitch(90f, ::finishImpel)
+                "JUMP" -> holdKey(mc.options.keyJump, 3, ::finishImpel)
+                "SNEAK" -> holdKey(mc.options.keyShift, 4, ::finishImpel)
             }
         }
     }
 
+    private fun finishImpel() {
+        impelRunning = false
+        val next = pendingImpel ?: return
+        pendingImpel = null
+        runImpel(next)
+    }
+
     /** Looks straight up/down, right-clicks one tick later so the server has the new rotation, then restores the camera. */
-    private fun clickWithPitch(pitch: Float) {
+    private fun clickWithPitch(pitch: Float, onDone: () -> Unit) {
         val prevPitch = player.xRot
         busy = true
         rotationJob = scope.launch {
@@ -195,6 +228,7 @@ object VampireSlayerHelper: Feature(
                 rotatePitch(prevPitch)
             } finally {
                 busy = false
+                scheduledTask(0, onDone)
             }
         }
     }
@@ -216,9 +250,12 @@ object VampireSlayerHelper: Feature(
     }
 
     /** Presses [key] for [duration] ticks, then releases it unless the player is physically holding it. */
-    private fun holdKey(key: KeyMapping, duration: Int) {
+    private fun holdKey(key: KeyMapping, duration: Int, onDone: () -> Unit) {
         key.isDown = true
-        scheduledTask(duration) { key.isDown = isPhysicallyDown(key) }
+        scheduledTask(duration) {
+            key.isDown = isPhysicallyDown(key)
+            onDone()
+        }
     }
 
     private fun isPhysicallyDown(key: KeyMapping): Boolean {
@@ -259,6 +296,7 @@ object VampireSlayerHelper: Feature(
         bossStand = null
         twinclawsHandled = false
         stakeHandled = false
+        pendingImpel = null
         seenDebugNames.clear()
     }
 
