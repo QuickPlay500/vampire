@@ -18,6 +18,9 @@ import com.github.noamm9.utils.ThreadUtils.scheduledTask
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.location.WorldType
+import com.github.noamm9.vampire.utils.VampireBoss.findBossStand
+import com.github.noamm9.vampire.utils.VampireBoss.isStakeable
+import com.github.noamm9.vampire.utils.VampireBoss.standsAround
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -67,6 +70,12 @@ object VampireSlayerHelper: Feature(
     private val rotationTime by SliderSetting("Rotation Time", 150, 0, 500, 1, " ms")
         .withDescription("Time (ms) to rotate up/down for CLICK UP and CLICK DOWN, and the same again to rotate back. &eSet to 0 to snap instantly.")
         .showIf { autoImpel.value }
+    private val sneakFailsafe by ToggleSetting("Sneak Failsafe", true)
+        .withDescription("If you are already sneaking on a SNEAK order, briefly unsneaks and sneaks again so it registers as a new sneak.")
+        .showIf { autoImpel.value }
+    private val jumpFailsafe by ToggleSetting("Jump Failsafe", true)
+        .withDescription("If you are in the air on a JUMP order, waits until you land and jumps then, since a jump in mid-air doesn't count.")
+        .showIf { autoImpel.value }
 
     private val autoStake by ToggleSetting("Auto Steak Stake", true).section("Steak Stake")
         .withDescription("Switches to the Steak Stake in your hotbar once the boss is low enough to be staked.")
@@ -76,7 +85,6 @@ object VampireSlayerHelper: Feature(
     private val debug by ToggleSetting("Debug", false)
         .withDescription("Prints titles and boss nametags to chat, to check the detection strings.")
 
-    private const val BOSS_NAME = "Bloodfiend"
     /**
      * The order comes as a title that counts down every 2 ticks, e.g. "Impel: CLICK UP 2.0s".
      * The "IMPEL 0.5s" on the boss nametag is only the warning before it and never contains the order.
@@ -84,8 +92,10 @@ object VampireSlayerHelper: Feature(
     private val impelRegex = Regex("(CLICK UP|CLICK DOWN|JUMP|SNEAK)(?:\\s+(\\d+(?:\\.\\d+)?)S)?")
     /** Fallback for a title without countdown: the same order counts as new after it was gone this long. */
     private const val IMPEL_GONE_TICKS = 5
-    /** Added to the boss name once it can be staked, same check as Skyblocker's StakeIndicator. */
-    private const val STAKE_MARKER = "҉"
+    /** Ticks the sneak key stays released for the Sneak Failsafe, long enough for the server to get the input change. */
+    private const val SNEAK_RELEASE_TICKS = 2
+    /** Longest the Jump Failsafe waits for the ground, kept below the 2s (40 ticks) Impel window. */
+    private const val JUMP_WAIT_TICKS = 30
 
     private var bossStand: ArmorStand? = null
     private var busy = false
@@ -98,6 +108,7 @@ object VampireSlayerHelper: Feature(
     private var impelRunning = false
     private var pendingImpel: String? = null
     private var stakeHandled = false
+    private var stakeSlot: Int? = null
     private var rotationJob: Job? = null
     private val seenDebugNames = mutableSetOf<String>()
 
@@ -109,12 +120,16 @@ object VampireSlayerHelper: Feature(
             if (mc.player == null || mc.level == null) return@register
             if (LocationUtils.world != WorldType.Rift) return@register reset()
 
-            val boss = findBossStand() ?: return@register reset()
+            val boss = findBossStand(onlyOwnBoss.value) ?: return@register reset()
             bossStand = boss
             val stands = standsAround(boss)
 
-            if (debug.value) stands.map { it.name.unformattedText }.filter(seenDebugNames::add).forEach {
-                ChatUtils.modMessage("&7[Vampire] nametag: &f$it")
+            if (debug.value) {
+                stands.map { it.name.unformattedText }.filter(seenDebugNames::add).forEach {
+                    ChatUtils.modMessage("&7[Vampire] nametag: &f$it")
+                }
+                // Raw name with formatting codes, so the stake marker / bold styling shows up.
+                boss.name.string.takeIf(seenDebugNames::add)?.let { ChatUtils.modMessage("&7[Vampire] boss: &f${it.replace("§", "¦")}") }
             }
 
             if (autoStake.value) checkStake(boss)
@@ -139,13 +154,18 @@ object VampireSlayerHelper: Feature(
 
     /** Swaps to the stake once per stake window, so the player can still switch away afterwards. */
     private fun checkStake(boss: ArmorStand) {
-        if (STAKE_MARKER !in boss.name.string) return run { stakeHandled = false }
+        if (! isStakeable(boss)) return run {
+            stakeHandled = false
+            stakeSlot = null
+        }
         // Melon/Ice swap back to their previous slot when done, which would undo the swap.
         if (stakeHandled || busy) return
 
         val slot = PlayerUtils.findHotbarSlot { it.skyblockId == "STEAK_STAKE" } ?: return
         stakeHandled = true
+        stakeSlot = slot
         player.inventory.selectedSlot = slot
+        if (debug.value) ChatUtils.modMessage("&7[Vampire] Stake: &eswapped to slot ${slot + 1}")
     }
 
     private fun checkMelon() {
@@ -203,10 +223,23 @@ object VampireSlayerHelper: Feature(
             when (order) {
                 "CLICK UP" -> clickWithPitch(- 90f, ::finishImpel)
                 "CLICK DOWN" -> clickWithPitch(90f, ::finishImpel)
-                "JUMP" -> holdKey(mc.options.keyJump, 3, ::finishImpel)
-                "SNEAK" -> holdKey(mc.options.keyShift, 4, ::finishImpel)
+                "JUMP" -> if (jumpFailsafe.value) jumpWhenLanded(JUMP_WAIT_TICKS) else holdKey(mc.options.keyJump, 3, ::finishImpel)
+                "SNEAK" -> {
+                    val key = mc.options.keyShift
+                    if (! sneakFailsafe.value || ! key.isDown) return@scheduledTask holdKey(key, 4, ::finishImpel)
+                    // Already sneaking: the server only sees a new sneak if it sees the key released first.
+                    key.isDown = false
+                    scheduledTask(SNEAK_RELEASE_TICKS) { holdKey(key, 4, ::finishImpel) }
+                }
             }
         }
+    }
+
+    /** A jump pressed mid-air doesn't count, so wait for the ground (up to [ticksLeft]) and jump right when landing. */
+    private fun jumpWhenLanded(ticksLeft: Int) {
+        val onGround = mc.player?.onGround() ?: return finishImpel()
+        if (onGround || ticksLeft <= 0) return holdKey(mc.options.keyJump, 3, ::finishImpel)
+        scheduledTask(1) { jumpWhenLanded(ticksLeft - 1) }
     }
 
     private fun finishImpel() {
@@ -272,30 +305,19 @@ object VampireSlayerHelper: Feature(
         scheduledTask(1) {
             PlayerUtils.rightClick()
             scheduledTask(2) {
-                mc.player?.inventory?.selectedSlot = prevSlot
+                // During the stake window always go back to the stake, never to the sword.
+                mc.player?.inventory?.selectedSlot = stakeSlot ?: prevSlot
                 busy = false
             }
         }
     }
 
-    private fun findBossStand(): ArmorStand? {
-        val username = mc.user.name
-        val nameStands = level.getEntitiesOfClass(ArmorStand::class.java, player.boundingBox.inflate(25.0)) {
-            it.hasCustomName() && BOSS_NAME in it.name.unformattedText
-        }.sortedBy { it.distanceToSqr(player) }
-
-        if (! onlyOwnBoss.value) return nameStands.firstOrNull()
-        return nameStands.firstOrNull { stand -> standsAround(stand).any { username in it.name.unformattedText } }
-    }
-
-    private fun standsAround(stand: ArmorStand) = level.getEntitiesOfClass(
-        ArmorStand::class.java, stand.boundingBox.inflate(0.1, 2.5, 0.1)
-    ) { it != stand && it.hasCustomName() }
 
     private fun reset() {
         bossStand = null
         twinclawsHandled = false
         stakeHandled = false
+        stakeSlot = null
         pendingImpel = null
         seenDebugNames.clear()
     }
