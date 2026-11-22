@@ -14,7 +14,7 @@ To add another Minecraft version, start in `settings.gradle.kts` and give it its
 
 ## Build and run
 
-- In IntelliJ, choose `Untitled [buildAll]`, `Untitled [runClient 26.2]` or `Untitled [runClient 26.3]` from the run dropdown. These configs are included in `.run/`.
+- In IntelliJ, choose `Vampire [buildAll]`, `Vampire [runClient 26.2]` or `Vampire [runClient 26.3]` from the run dropdown. These configs are included in `.run/`.
 
 You'll find the built jars in `build/libs/`. Each Minecraft version has its own `run/` folder under `versions/`.
 

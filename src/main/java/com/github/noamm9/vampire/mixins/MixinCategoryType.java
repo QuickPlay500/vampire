@@ -1,4 +1,4 @@
-package com.github.noamm9.untitled.mixins;
+package com.github.noamm9.vampire.mixins;
 
 import com.github.noamm9.NoammAddons;
 import com.github.noamm9.ui.clickgui.enums.CategoryType;
@@ -18,7 +18,7 @@ import java.util.Arrays;
 
 /**
     Mixins to add a category to the config gui
-    String enumName = "UNTITLED";
+    String enumName = "VAMPIRE";
  */
 @Mixin(CategoryType.class)
 public class MixinCategoryType {
@@ -33,7 +33,7 @@ public class MixinCategoryType {
             unsafeField.setAccessible(true);
             Unsafe unsafe = (Unsafe) unsafeField.get(null);
 
-            String enumName = "UNTITLED";
+            String enumName = "VAMPIRE";
             ArrayList<CategoryType> valuesList = new ArrayList<>(Arrays.asList($VALUES));
             int newOrdinal = valuesList.size();
 
