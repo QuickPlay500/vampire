@@ -43,39 +43,39 @@ import kotlin.math.min
  * Movement and sword hits stay with the player.
  * Detection mirrors Skyblocker's vampire indicators (armor stands within 2.5 blocks of the boss name stand).
  */
-object VampireSlayerHelper: Feature(
-    description = "Automates Healing Melon, Holy Ice, Impel orders and the Steak Stake swap during the Vampire Slayer.",
-    name = "Vampire Slayer Helper",
+object AutoSlayer: Feature(
+    description = "Automates Healing Melon, Holy Ice, Impels and the Steak Stake.",
+    name = "Auto Slayer",
     toggled = false
 ) {
     private val autoMelon by ToggleSetting("Auto Healing Melon", true).section("Healing Melon")
         .withDescription("Uses a Healing Melon from your hotbar when your health is low.")
-    private val melonHearts by SliderSetting("Heal Below", 6.0, 1.0, 20.0, 0.5, " hearts")
+    private val melonHearts by SliderSetting("Heal Below", 7.0, 0.0, 16.0, 0.5, " hearts")
         .withDescription("Uses the melon when your health is at or below this many hearts.")
         .showIf { autoMelon.value }
-    private val melonCooldown by SliderSetting("Melon Cooldown", 20, 5, 100, 1, " ticks")
-        .withDescription("Minimum time between two melon uses, so mana isn't wasted.")
+    private val melonCooldown by SliderSetting("Melon Cooldown", 40, 0, 100, 1, " ticks")
+        .withDescription("Minimum time between two melon uses.")
         .showIf { autoMelon.value }
 
     private val autoIce by ToggleSetting("Auto Holy Ice", true).section("Twinclaws")
         .withDescription("Uses Holy Ice when the boss starts a Twinclaws attack.")
-    private val iceAt by SliderSetting("Ice At", 1.0, 0.2, 1.5, 0.1, "s")
+    private val iceAt by SliderSetting("Ice At", 0.7, 0.2, 1.5, 0.1, "s")
         .withDescription("Uses Holy Ice once the TWINCLAWS timer is at or below this. The hit lands at 0.0s and Holy Ice lasts 1.5s.")
         .showIf { autoIce.value }
 
     private val autoImpel by ToggleSetting("Auto Impel", true).section("Impel")
         .withDescription("Performs the boss' orders: CLICK UP, CLICK DOWN, JUMP and SNEAK.")
     private val impelDelay by SliderSetting("Impel Delay", 2, 0, 20, 1, " ticks")
-        .withDescription("Ticks to wait before reacting to an order. Tier IV only gives you 2 seconds (40 ticks).")
+        .withDescription("Ticks to wait before reacting to an order.")
         .showIf { autoImpel.value }
-    private val rotationTime by SliderSetting("Rotation Time", 150, 0, 500, 1, " ms")
+    private val rotationTime by SliderSetting("Rotation Time", 230, 0, 500, 1, " ms")
         .withDescription("Time (ms) to rotate up/down for CLICK UP and CLICK DOWN, and the same again to rotate back. &eSet to 0 to snap instantly.")
         .showIf { autoImpel.value }
     private val sneakFailsafe by ToggleSetting("Sneak Failsafe", true)
         .withDescription("If you are already sneaking on a SNEAK order, briefly unsneaks and sneaks again so it registers as a new sneak.")
         .showIf { autoImpel.value }
     private val jumpFailsafe by ToggleSetting("Jump Failsafe", true)
-        .withDescription("If you are in the air on a JUMP order, waits until you land and jumps then, since a jump in mid-air doesn't count.")
+        .withDescription("If you are in the air on a JUMP order, waits until you land and jumps then.")
         .showIf { autoImpel.value }
 
     private val autoStake by ToggleSetting("Auto Steak Stake", true).section("Steak Stake")

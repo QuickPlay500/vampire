@@ -27,7 +27,7 @@ import java.util.UUID
  *
  * Stonewrath has no timer on the boss nametag, so it is detected by the boss name stand rising above you.
  */
-object VampireNotifications: Feature(
+object Notifications: Feature(
     description = "Shows titles for Twinclaws, Stonewrath, the Steak Stake window and boss spawn/death during the Vampire Slayer.",
     name = "Vampire Notifications",
     toggled = false
@@ -40,10 +40,10 @@ object VampireNotifications: Feature(
         .withDescription("Only warns about Twinclaws while Mania is active (Tier IV+), where the knockback can push you off the green ring.")
         .showIf { twinclawsAlert.value }
 
-    private val stonesAlert by ToggleSetting("Go To Stones", true).section("Stonewrath")
-        .withDescription("Warns when the boss flies up, so you can go to the stones.")
-    private val leaveStonesAlert by ToggleSetting("Leave Stones", true)
-        .withDescription("Warns shortly before the boss comes back down, so you can leave the stones.")
+    private val stonesAlert by ToggleSetting("Stonewrath", true).section("Stonewrath")
+        .withDescription("Warns when the boss flies up and you need to go to the stones.")
+    private val leaveStonesAlert by ToggleSetting("Ready", true)
+        .withDescription("Warns if the boss is locked on to your position and you need to leave the Stones")
     private val readyTrigger by DropdownSetting("Ready Trigger", 0, listOf("Delay", "Sound"))
         .withDescription("Delay: warns 3s after the boss flew up. Sound: warns on a sound you pick while the boss is up.")
         .showIf { leaveStonesAlert.value }
