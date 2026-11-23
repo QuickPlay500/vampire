@@ -21,7 +21,7 @@ import java.util.UUID
  */
 object Notifications: Feature(
     description = "Shows titles for Twinclaws, Stonewrath, the Steak Stake window and boss spawn/death during the Vampire Slayer.",
-    name = "Vampire Notifications",
+    name = "Notifications",
     toggled = false
 ) {
     private val spawnAlert by ToggleSetting("Boss Spawned", true).section("Boss")
