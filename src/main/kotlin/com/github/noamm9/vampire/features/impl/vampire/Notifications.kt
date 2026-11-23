@@ -73,7 +73,7 @@ object Notifications: Feature(
 
             val claws = texts.any { "TWINCLAWS" in it }
             if (claws && ! twinclawsActive && twinclawsAlert.value && (! twinclawsOnlyMania.value || texts.any { "MANIA" in it })) {
-                notify("&bTwinclaws!", "&7Use Holy Ice")
+                notify("&bTwinclaws!")
             }
             twinclawsActive = claws
 

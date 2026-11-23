@@ -89,6 +89,8 @@ object AutoSlayer: Feature(
     private val impelRegex = Regex("(CLICK UP|CLICK DOWN|JUMP|SNEAK)(?:\\s+(\\d+(?:\\.\\d+)?)S)?")
     /** Fallback for a title without countdown: the same order counts as new after it was gone this long. */
     private const val IMPEL_GONE_TICKS = 5
+    /** Ticks without a TWINCLAWS timer before the attack counts as over. Attacks are at least 7s apart. */
+    private const val TWINCLAWS_GONE_TICKS = 20
     /** Ticks the sneak key stays released for the Sneak Failsafe, long enough for the server to get the input change. */
     private const val SNEAK_RELEASE_TICKS = 2
     /** Longest the Jump Failsafe waits for the ground, kept below the 2s (40 ticks) Impel window. */
@@ -100,6 +102,7 @@ object AutoSlayer: Feature(
     private var ticks = 0L
     private var twinclawsHandled = false
     private var twinclawsActive = false
+    private var lastTwinclawsTick = 0L
     private var lastImpel: String? = null
     private var lastImpelSeenTick = 0L
     private var lastImpelRemaining: Double? = null
@@ -186,12 +189,15 @@ object AutoSlayer: Feature(
         val remaining = stands.firstNotNullOfOrNull { twinclawsRegex.find(it.name.unformattedText.uppercase()) }
             ?.groupValues?.get(1)?.toDoubleOrNull()
         if (remaining == null) return run {
-            if (twinclawsActive && ! twinclawsHandled && Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &cmissed, timer ended")
+            // The timer stand drops out for a tick or two while the boss moves; only a longer gap ends the attack.
+            if (! twinclawsActive || ticks - lastTwinclawsTick < TWINCLAWS_GONE_TICKS) return
+            if (! twinclawsHandled && Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &cmissed, timer ended")
             twinclawsActive = false
             twinclawsHandled = false
         }
         if (! twinclawsActive && Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &fTwinclaws seen at ${remaining}s")
         twinclawsActive = true
+        lastTwinclawsTick = ticks
         // Checked every tick until used, so a late timer stand or a running Impel only delays the ice.
         if (twinclawsHandled || remaining > iceAt.value || busy) return
 
