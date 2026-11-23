@@ -2,7 +2,9 @@ package com.github.noamm9.vampire.utils
 
 import com.github.noamm9.features.Shortcuts
 import com.github.noamm9.utils.ChatUtils.unformattedText
+import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import net.minecraft.world.entity.decoration.ArmorStand
+import net.minecraft.world.item.ItemStack
 
 /**
  * Shared Riftstalker Bloodfiend detection, used by the helper and the notifications.
@@ -32,6 +34,12 @@ object VampireBoss: Shortcuts {
     fun standsAround(stand: ArmorStand) = level.getEntitiesOfClass(
         ArmorStand::class.java, stand.boundingBox.inflate(0.1, 2.5, 0.1)
     ) { it != stand && it.hasCustomName() }
+
+    /**
+     * Steak Stake or its upgrade, the Super Sharp 'n Stabby Steak Stake.
+     * Matched by ID and by name, since the upgrade's ID isn't confirmed.
+     */
+    fun isSteakStake(stack: ItemStack) = "STAKE" in stack.skyblockId || "Steak Stake" in stack.hoverName.string
 
     /** The marker Skyblocker checks for, or the boss' health at/below the stake threshold of its tier (20%). */
     fun isStakeable(boss: ArmorStand): Boolean {

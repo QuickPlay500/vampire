@@ -1,9 +1,11 @@
 package com.github.noamm9.vampire.features.impl.vampire
 
-import com.github.noamm9.config.types.SliderSetting
+import com.github.noamm9.config.types.DropdownSetting
 import com.github.noamm9.config.types.SoundSetting
+import com.github.noamm9.config.types.TextInputSetting
 import com.github.noamm9.config.types.ToggleSetting
 import com.github.noamm9.event.impl.ChatMessageEvent
+import com.github.noamm9.event.impl.MainThreadPacketReceivedEvent
 import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.features.Feature
@@ -15,6 +17,8 @@ import com.github.noamm9.utils.location.WorldType
 import com.github.noamm9.vampire.utils.VampireBoss.findBossStand
 import com.github.noamm9.vampire.utils.VampireBoss.isStakeable
 import com.github.noamm9.vampire.utils.VampireBoss.standsAround
+import net.minecraft.network.protocol.game.ClientboundSoundEntityPacket
+import net.minecraft.network.protocol.game.ClientboundSoundPacket
 import net.minecraft.sounds.SoundEvents
 import java.util.UUID
 
@@ -40,12 +44,12 @@ object VampireNotifications: Feature(
         .withDescription("Warns when the boss flies up, so you can go to the stones.")
     private val leaveStonesAlert by ToggleSetting("Leave Stones", true)
         .withDescription("Warns shortly before the boss comes back down, so you can leave the stones.")
-    private val leaveDelay by SliderSetting("Leave Warning Delay", 25, 0, 60, 1, " ticks")
-        .withDescription("Ticks after the boss flew up until the leave warning. The boss locks onto your position after about 2s (40 ticks).")
+    private val readyTrigger by DropdownSetting("Ready Trigger", 0, listOf("Delay", "Sound"))
+        .withDescription("Delay: warns 3s after the boss flew up. Sound: warns on a sound you pick while the boss is up.")
         .showIf { leaveStonesAlert.value }
-    private val flyHeight by SliderSetting("Fly Height", 6.0, 3.0, 15.0, 0.5, " blocks")
-        .withDescription("How far the boss name has to be above you to count as flying up.")
-        .showIf { stonesAlert.value || leaveStonesAlert.value }
+    private val lockOnSound by TextInputSetting("Sound ID", "")
+        .withDescription("Part of the sound ID to react to. Turn on Debug to see every sound played while the boss is up.")
+        .showIf { leaveStonesAlert.value && readyTrigger.value == 1 }
 
     private val stakeAlert by ToggleSetting("Steak Stake", true).section("Steak Stake")
         .withDescription("Warns once the boss is low enough to be staked.")
@@ -54,7 +58,7 @@ object VampireNotifications: Feature(
     private val sound by SoundSetting("Sound", SoundEvents.NOTE_BLOCK_PLING).showIf { playSound.value }
     private val onlyOwnBoss by ToggleSetting("Only Own Boss", true)
     private val debug by ToggleSetting("Debug", false)
-        .withDescription("Prints the boss' height above you whenever it changes by a block, to tune Fly Height.")
+        .withDescription("Prints every sound played while the boss is up, and how long it stayed up.")
 
     private val slainMessages = setOf("NICE! SLAYER BOSS SLAIN!", "SLAYER QUEST COMPLETE!")
 
@@ -64,7 +68,12 @@ object VampireNotifications: Feature(
     private var flying = false
     /** Bumped on every fly-up, so a scheduled leave warning from an earlier one is ignored. */
     private var flyId = 0
-    private var lastDebugHeight = Int.MIN_VALUE
+    /** Normal hops reach about 6 blocks above you, Stonewrath goes up 16 to 20. */
+    private const val FLY_HEIGHT = 10.0
+    /** Ticks from flying up to the Ready warning; the slam comes about 115 ticks after flying up. */
+    private const val LEAVE_DELAY = 60
+    private var readyShown = false
+    private var flyTicks = 0
 
     override fun init() {
         register<WorldChangeEvent> {
@@ -94,15 +103,28 @@ object VampireNotifications: Feature(
             if (canStake && ! stakeable && stakeAlert.value) notify("&4Steak Stake!", "&7The boss can be staked")
             stakeable = canStake
 
-            val height = boss.y - player.y
-            if (debug.value && height.toInt() != lastDebugHeight) {
-                lastDebugHeight = height.toInt()
-                ChatUtils.modMessage("&7[Vampire] boss height: &f${"%.1f".format(height)}")
+            val isFlying = boss.y - player.y >= FLY_HEIGHT
+            if (isFlying && ! flying) onFlyUp()
+            if (isFlying) flyTicks ++
+            else if (flying && debug.value) ChatUtils.modMessage("&7[Vampire] boss came down &f${flyTicks}t &7after flying up")
+            flying = isFlying
+        }
+
+        register<MainThreadPacketReceivedEvent.Pre> {
+            if (! flying) return@register
+            val (soundId, where) = when (val packet = event.packet) {
+                is ClientboundSoundPacket -> packet.sound.value().location.path to
+                    "%.1f from you".format(player.distanceToSqr(packet.x, packet.y, packet.z).let(Math::sqrt))
+                is ClientboundSoundEntityPacket -> packet.sound.value().location.path to
+                    "on ${level.getEntity(packet.id)?.name?.string ?: "entity ${packet.id}"}"
+                else -> return@register
             }
 
-            val isFlying = height >= flyHeight.value
-            if (isFlying && ! flying) onFlyUp()
-            flying = isFlying
+            if (debug.value) ChatUtils.modMessage("&7[Vampire] sound: &f$soundId &7($where, ${flyTicks}t after fly-up)")
+            if (! leaveStonesAlert.value || readyTrigger.value != 1 || readyShown) return@register
+            if (lockOnSound.value.isBlank() || lockOnSound.value.trim() !in soundId) return@register
+            readyShown = true
+            notify("&eReady!")
         }
 
         register<ChatMessageEvent> {
@@ -116,8 +138,10 @@ object VampireNotifications: Feature(
 
     private fun onFlyUp() {
         val id = ++ flyId
+        readyShown = false
+        flyTicks = 0
         if (stonesAlert.value) notify("&6Stonewrath!")
-        if (leaveStonesAlert.value) scheduledTask(leaveDelay.value) {
+        if (leaveStonesAlert.value && readyTrigger.value == 0) scheduledTask(LEAVE_DELAY) {
             if (id == flyId && flying) notify("&eReady!")
         }
     }
@@ -131,6 +155,5 @@ object VampireNotifications: Feature(
         twinclawsActive = false
         stakeable = false
         flying = false
-        lastDebugHeight = Int.MIN_VALUE
     }
 }

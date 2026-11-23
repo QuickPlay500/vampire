@@ -18,6 +18,7 @@ import com.github.noamm9.utils.ThreadUtils.scheduledTask
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.location.WorldType
+import com.github.noamm9.vampire.utils.VampireBoss
 import com.github.noamm9.vampire.utils.VampireBoss.findBossStand
 import com.github.noamm9.vampire.utils.VampireBoss.isStakeable
 import com.github.noamm9.vampire.utils.VampireBoss.standsAround
@@ -58,8 +59,8 @@ object VampireSlayerHelper: Feature(
 
     private val autoIce by ToggleSetting("Auto Holy Ice", true).section("Twinclaws")
         .withDescription("Uses Holy Ice when the boss starts a Twinclaws attack.")
-    private val iceDelay by SliderSetting("Ice Delay", 12, 0, 40, 1, " ticks")
-        .withDescription("Ticks to wait after TWINCLAWS appears. The wiki recommends 0.5 to 1s (10 to 20 ticks); Holy Ice lasts 1.5s.")
+    private val iceAt by SliderSetting("Ice At", 1.0, 0.2, 1.5, 0.1, "s")
+        .withDescription("Uses Holy Ice once the TWINCLAWS timer is at or below this. The hit lands at 0.0s and Holy Ice lasts 1.5s.")
         .showIf { autoIce.value }
 
     private val autoImpel by ToggleSetting("Auto Impel", true).section("Impel")
@@ -89,6 +90,7 @@ object VampireSlayerHelper: Feature(
      * The order comes as a title that counts down every 2 ticks, e.g. "Impel: CLICK UP 2.0s".
      * The "IMPEL 0.5s" on the boss nametag is only the warning before it and never contains the order.
      */
+    private val twinclawsRegex = Regex("TWINCLAWS\\s+(\\d+(?:\\.\\d+)?)S")
     private val impelRegex = Regex("(CLICK UP|CLICK DOWN|JUMP|SNEAK)(?:\\s+(\\d+(?:\\.\\d+)?)S)?")
     /** Fallback for a title without countdown: the same order counts as new after it was gone this long. */
     private const val IMPEL_GONE_TICKS = 5
@@ -102,6 +104,7 @@ object VampireSlayerHelper: Feature(
     private var lastMelonTick = 0L
     private var ticks = 0L
     private var twinclawsHandled = false
+    private var twinclawsActive = false
     private var lastImpel: String? = null
     private var lastImpelSeenTick = 0L
     private var lastImpelRemaining: Double? = null
@@ -109,6 +112,7 @@ object VampireSlayerHelper: Feature(
     private var pendingImpel: String? = null
     private var stakeHandled = false
     private var stakeSlot: Int? = null
+    private var stakeMissingLogged = false
     private var rotationJob: Job? = null
     private val seenDebugNames = mutableSetOf<String>()
 
@@ -156,12 +160,19 @@ object VampireSlayerHelper: Feature(
     private fun checkStake(boss: ArmorStand) {
         if (! isStakeable(boss)) return run {
             stakeHandled = false
+            stakeMissingLogged = false
             stakeSlot = null
         }
         // Melon/Ice swap back to their previous slot when done, which would undo the swap.
         if (stakeHandled || busy) return
 
-        val slot = PlayerUtils.findHotbarSlot { it.skyblockId == "STEAK_STAKE" } ?: return
+        val slot = PlayerUtils.findHotbarSlot(VampireBoss::isSteakStake) ?: return run {
+            if (debug.value && ! stakeMissingLogged) {
+                stakeMissingLogged = true
+                val ids = (0 .. 8).map { player.inventory.getItem(it).skyblockId.ifEmpty { "-" } }
+                ChatUtils.modMessage("&7[Vampire] Stake: &cno stake in hotbar &7$ids")
+            }
+        }
         stakeHandled = true
         stakeSlot = slot
         player.inventory.selectedSlot = slot
@@ -177,21 +188,25 @@ object VampireSlayerHelper: Feature(
     }
 
     private fun checkTwinclaws(stands: List<ArmorStand>) {
-        val active = stands.any { "TWINCLAWS" in it.name.unformattedText.uppercase() }
-        if (! active) return run { twinclawsHandled = false }
-        if (twinclawsHandled) return
-
-        val slot = PlayerUtils.findHotbarSlot { it.skyblockId == "HOLY_ICE" } ?: return
-        twinclawsHandled = true
-        scheduledTask(iceDelay.value) {
-            // Melon and Impel can be in progress, wait for them instead of dropping the ice.
-            fun tryUse(attempts: Int) {
-                if (bossStand == null) return
-                if (! busy) return useHotbarItem(slot)
-                if (attempts > 0) scheduledTask(1) { tryUse(attempts - 1) }
-            }
-            tryUse(10)
+        val remaining = stands.firstNotNullOfOrNull { twinclawsRegex.find(it.name.unformattedText.uppercase()) }
+            ?.groupValues?.get(1)?.toDoubleOrNull()
+        if (remaining == null) return run {
+            if (twinclawsActive && ! twinclawsHandled && debug.value) ChatUtils.modMessage("&7[Vampire] Ice: &cmissed, timer ended")
+            twinclawsActive = false
+            twinclawsHandled = false
         }
+        if (! twinclawsActive && debug.value) ChatUtils.modMessage("&7[Vampire] Ice: &fTwinclaws seen at ${remaining}s")
+        twinclawsActive = true
+        // Checked every tick until used, so a late timer stand or a running Impel only delays the ice.
+        if (twinclawsHandled || remaining > iceAt.value || busy) return
+
+        val slot = PlayerUtils.findHotbarSlot { it.skyblockId == "HOLY_ICE" } ?: return run {
+            if (debug.value) ChatUtils.modMessage("&7[Vampire] Ice: &cno Holy Ice in hotbar")
+            twinclawsHandled = true
+        }
+        twinclawsHandled = true
+        useHotbarItem(slot)
+        if (debug.value) ChatUtils.modMessage("&7[Vampire] Ice: &eused at ${remaining}s")
     }
 
     /**
@@ -316,6 +331,7 @@ object VampireSlayerHelper: Feature(
     private fun reset() {
         bossStand = null
         twinclawsHandled = false
+        twinclawsActive = false
         stakeHandled = false
         stakeSlot = null
         pendingImpel = null
