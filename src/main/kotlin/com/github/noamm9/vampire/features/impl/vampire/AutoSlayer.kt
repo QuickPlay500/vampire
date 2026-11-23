@@ -36,7 +36,7 @@ import kotlin.math.min
  * Riftstalker Bloodfiend (Vampire Slayer) helper.
  *
  * - Healing Melon: right-clicks a Healing Melon when your health drops below a threshold.
- * - Holy Ice: right-clicks Holy Ice a configurable delay after the TWINCLAWS indicator shows up above the boss.
+ * - Holy Ice: right-clicks Holy Ice once the TWINCLAWS timer above the boss reaches a set value.
  * - Impel: performs the boss' order (CLICK UP / CLICK DOWN / JUMP / SNEAK).
  * - Steak Stake: switches to the stake once the boss can be staked (the hit itself stays with the player).
  *
@@ -97,6 +97,7 @@ object AutoSlayer: Feature(
     private const val JUMP_WAIT_TICKS = 30
 
     private var bossStand: ArmorStand? = null
+    /** Set while a hotbar item is being swapped to and used. Impels left-click and don't set it, so Holy Ice (right-click) can go through mid-Impel. */
     private var busy = false
     private var lastMelonTick = 0L
     private var ticks = 0L
@@ -265,18 +266,16 @@ object AutoSlayer: Feature(
         runImpel(next)
     }
 
-    /** Looks straight up/down, right-clicks one tick later so the server has the new rotation, then restores the camera. */
+    /** Looks straight up/down, left-clicks one tick later so the server has the new rotation, then restores the camera. */
     private fun clickWithPitch(pitch: Float, onDone: () -> Unit) {
         val prevPitch = player.xRot
-        busy = true
         rotationJob = scope.launch {
             try {
                 rotatePitch(pitch)
-                waitTicks(1, PlayerUtils::rightClick)
+                waitTicks(1, PlayerUtils::leftClick)
                 waitTicks(2)
                 rotatePitch(prevPitch)
             } finally {
-                busy = false
                 scheduledTask(0, onDone)
             }
         }

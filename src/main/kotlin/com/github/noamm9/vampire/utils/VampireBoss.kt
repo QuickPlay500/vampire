@@ -21,18 +21,25 @@ object VampireBoss: Shortcuts {
     /** The stake marker is a combining character that can sit between the letters, which breaks "Bloodfiend" matching. */
     val ArmorStand.cleanName get() = name.unformattedText.replace(STAKE_MARKER, "")
 
+    /** Your boss once found. Kept until it despawns, since the stand with your name can drop out of [standsAround] for a tick. */
+    private var ownBoss: ArmorStand? = null
+
     /** Only the boss you spawned: the one with your name on its "SLAYER BOSS" stand. */
     fun findBossStand(): ArmorStand? {
+        ownBoss?.let { if (! it.isRemoved && it.level() == level && BOSS_NAME in it.cleanName) return it }
+
         val username = mc.user.name
         val nameStands = level.getEntitiesOfClass(ArmorStand::class.java, player.boundingBox.inflate(25.0)) {
             it.hasCustomName() && BOSS_NAME in it.cleanName
         }.sortedBy { it.distanceToSqr(player) }
 
-        return nameStands.firstOrNull { stand -> standsAround(stand).any { username in it.name.unformattedText } }
+        ownBoss = nameStands.firstOrNull { stand -> standsAround(stand).any { username in it.name.unformattedText } }
+        return ownBoss
     }
 
+    /** The timer and owner stands lag behind the boss name stand when it moves, so the box is wider than Skyblocker's 0.1. */
     fun standsAround(stand: ArmorStand) = level.getEntitiesOfClass(
-        ArmorStand::class.java, stand.boundingBox.inflate(0.1, 2.5, 0.1)
+        ArmorStand::class.java, stand.boundingBox.inflate(0.5, 2.5, 0.5)
     ) { it != stand && it.hasCustomName() }
 
     /**
