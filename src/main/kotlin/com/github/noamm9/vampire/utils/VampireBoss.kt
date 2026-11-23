@@ -3,8 +3,11 @@ package com.github.noamm9.vampire.utils
 import com.github.noamm9.features.Shortcuts
 import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
+import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.decoration.ArmorStand
 import net.minecraft.world.item.ItemStack
+import net.minecraft.world.item.Items
+import net.minecraft.world.phys.Vec3
 
 /**
  * Shared Riftstalker Bloodfiend detection, used by the helper and the notifications.
@@ -41,6 +44,28 @@ object VampireBoss: Shortcuts {
     fun standsAround(stand: ArmorStand) = level.getEntitiesOfClass(
         ArmorStand::class.java, stand.boundingBox.inflate(0.5, 2.5, 0.5)
     ) { it != stand && it.hasCustomName() }
+
+    /** Countdown on the Blood Ichor's name stand, from 25s down; damage numbers like "-7s" don't match. */
+    private val ichorTimerRegex = Regex("^(\\d+(?:\\.\\d+)?)s$")
+
+    /** A Blood Ichor (Tier V) and the seconds left before it deals 100❤. [pos] is about where the heads render. */
+    class Ichor(val stand: ArmorStand, val seconds: Double) {
+        val pos: Vec3 get() = stand.position().add(0.0, - 1.0, 0.0)
+    }
+
+    /**
+     * Blood Ichors near your boss. Each one is an invisible stand named "25s" (counting down) with two Player Head
+     * stands stacked right below it, spawned when the "ICHOR" timer on the boss runs out.
+     */
+    fun findIchors(boss: ArmorStand): List<Ichor> = level.getEntitiesOfClass(
+        ArmorStand::class.java, boss.boundingBox.inflate(30.0)
+    ) { it.hasCustomName() }.mapNotNull { stand ->
+        val seconds = ichorTimerRegex.find(stand.name.unformattedText.trim())?.groupValues?.get(1)?.toDoubleOrNull() ?: return@mapNotNull null
+        val hasHeads = level.getEntitiesOfClass(ArmorStand::class.java, stand.boundingBox.inflate(0.5, 0.0, 0.5).expandTowards(0.0, - 4.0, 0.0)) {
+            it != stand && it.getItemBySlot(EquipmentSlot.HEAD).`is`(Items.PLAYER_HEAD)
+        }.isNotEmpty()
+        if (hasHeads) Ichor(stand, seconds) else null
+    }
 
     /**
      * Steak Stake or its upgrade, the Super Sharp 'n Stabby Steak Stake.

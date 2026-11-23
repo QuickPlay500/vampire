@@ -26,6 +26,7 @@ Automates the boss mechanics.
   - **JUMP**: presses jump. With **Jump Failsafe**, if you're in the air it waits until you land, because a jump in mid-air doesn't count.
   - **SNEAK**: presses sneak. With **Sneak Failsafe**, if you're already sneaking it unsneaks and sneaks again so it counts as a new sneak.
   - **Impel Delay**: ticks to wait before reacting to an order.
+- **Auto Tuba**: uses the Weird Tuba or Weirder Tuba from your hotbar every 30s during the boss, but only with at least **Min Mana**, so Holy Ice and the Healing Melon keep enough mana. It never takes the turn of a Holy Ice that is still due.
 - **Auto Steak Stake**: switches to your Steak Stake once the boss is low enough to be staked. Works with the Steak Stake and the Super Sharp 'n Stabby Steak Stake.
 
 ### Vampire Notifications
@@ -37,6 +38,10 @@ Shows a title on screen for:
 - **Stonewrath**: the boss flies up and you need to go to the stones.
 - **Ready**: the boss has locked onto your position and you need to leave the stones (3s after it flew up).
 - **Steak Stake**: the boss can be staked.
+
+### Blood Ichor
+
+Warns when a Blood Ichor of your boss spawns (Tier V) with a **Notification** title. It deals 100❤ when its 25s timer runs out. Also shows where the Blood Ichors are, through walls: a **Tracer** from your crosshair like the M7 dragon tracer and a **Render Beacon** beam with a box. The color is configurable.
 
 ### Debug
 

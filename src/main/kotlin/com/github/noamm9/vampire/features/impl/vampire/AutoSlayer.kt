@@ -10,6 +10,7 @@ import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.features.Feature
 import com.github.noamm9.utils.ChatUtils
 import com.github.noamm9.ui.utils.Animation.Companion.easeInOutCubic
+import com.github.noamm9.utils.ActionBarParser
 import com.github.noamm9.utils.ActionUtils.waitTicks
 import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.MathUtils.lerp
@@ -78,6 +79,12 @@ object AutoSlayer: Feature(
         .withDescription("If you are in the air on a JUMP order, waits until you land and jumps then.")
         .showIf { autoImpel.value }
 
+    private val autoTuba by ToggleSetting("Auto Tuba", false).section("Tuba")
+        .withDescription("Uses the Weird Tuba or Weirder Tuba from your hotbar every 30s during the boss.")
+    private val tubaMinMana by SliderSetting("Min Mana", 100, 0, 200, 10, " mana")
+        .withDescription("Only uses the tuba with at least this much mana, so Holy Ice and the Healing Melon keep enough.")
+        .showIf { autoTuba.value }
+
     private val autoStake by ToggleSetting("Auto Steak Stake", true).section("Steak Stake")
         .withDescription("Switches to the Steak Stake in your hotbar once the boss is low enough to be staked.")
 
@@ -95,11 +102,15 @@ object AutoSlayer: Feature(
     private const val SNEAK_RELEASE_TICKS = 2
     /** Longest the Jump Failsafe waits for the ground, kept below the 2s (40 ticks) Impel window. */
     private const val JUMP_WAIT_TICKS = 30
+    /** Cooldown of the tuba's ability, 30s. */
+    private const val TUBA_COOLDOWN = 600
+    private val tubaIds = setOf("WEIRD_TUBA", "WEIRDER_TUBA")
 
     private var bossStand: ArmorStand? = null
     /** Set while a hotbar item is being swapped to and used. Impels left-click and don't set it, so Holy Ice (right-click) can go through mid-Impel. */
     private var busy = false
     private var lastMelonTick = 0L
+    private var lastTubaTick = - TUBA_COOLDOWN.toLong()
     private var ticks = 0L
     private var twinclawsHandled = false
     private var twinclawsActive = false
@@ -109,6 +120,8 @@ object AutoSlayer: Feature(
     private var lastImpelRemaining: Double? = null
     private var impelRunning = false
     private var pendingImpel: String? = null
+    private var runningImpel: String? = null
+    private var impelStartTick = 0L
     private var stakeHandled = false
     private var stakeSlot: Int? = null
     private var stakeMissingLogged = false
@@ -138,15 +151,19 @@ object AutoSlayer: Feature(
             if (autoStake.value) checkStake(boss)
             if (autoMelon.value) checkMelon()
             if (autoIce.value) checkTwinclaws(stands)
+            if (autoTuba.value) checkTuba()
         }
 
         register<MainThreadPacketReceivedEvent.Post> {
-            if (bossStand == null) return@register
             val text = when (val packet = event.packet) {
                 is ClientboundSetTitleTextPacket -> packet.text.unformattedText
                 is ClientboundSetSubtitleTextPacket -> packet.text.unformattedText
                 else -> return@register
             }.takeUnless(String::isBlank) ?: return@register
+            if (bossStand == null) {
+                if (Debug.enabled && "IMPEL" in text.uppercase()) ChatUtils.modMessage("&7[Vampire] Impel: &ctitle ignored, boss not detected: &f$text")
+                return@register
+            }
 
             if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] title: &f$text")
             if (! autoImpel.value) return@register
@@ -184,6 +201,17 @@ object AutoSlayer: Feature(
         val slot = PlayerUtils.findHotbarSlot { it.skyblockId.endsWith("HEALING_MELON") } ?: return
         lastMelonTick = ticks
         useHotbarItem(slot)
+    }
+
+    /** Checked after melon and ice, and skipped while an ice is still due, so the tuba never takes their turn. */
+    private fun checkTuba() {
+        if (busy || ticks - lastTubaTick < TUBA_COOLDOWN) return
+        if (twinclawsActive && ! twinclawsHandled) return
+        if (ActionBarParser.currentMana < tubaMinMana.value) return
+        val slot = PlayerUtils.findHotbarSlot { it.skyblockId in tubaIds } ?: return
+        lastTubaTick = ticks
+        useHotbarItem(slot)
+        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Tuba: &eused &7(mana ${ActionBarParser.currentMana}/${ActionBarParser.maxMana})")
     }
 
     private fun checkTwinclaws(stands: List<ArmorStand>) {
@@ -228,25 +256,40 @@ object AutoSlayer: Feature(
         lastImpelRemaining = remaining
         if (! isNew) return
 
-        if (impelRunning) return run { pendingImpel = order }
+        impelDebug("new order &e$order&7 (title ${remaining ?: "?"}s, last was ${prevRemaining ?: "-"}s)")
+        if (impelRunning) {
+            impelDebug("&6queued&7 $order behind $runningImpel" + (pendingImpel?.let { ", replaces queued $it" } ?: ""))
+            pendingImpel = order
+            return
+        }
         runImpel(order)
     }
 
     private fun runImpel(order: String) {
         impelRunning = true
+        runningImpel = order
+        impelStartTick = ticks
         if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Impel: &e$order")
 
         scheduledTask(impelDelay.value) {
+            impelDebug("executing $order")
             when (order) {
                 "CLICK UP" -> clickWithPitch(- 90f, ::finishImpel)
                 "CLICK DOWN" -> clickWithPitch(90f, ::finishImpel)
-                "JUMP" -> if (jumpFailsafe.value) jumpWhenLanded(JUMP_WAIT_TICKS) else holdKey(mc.options.keyJump, 3, ::finishImpel)
+                "JUMP" -> if (jumpFailsafe.value) jumpWhenLanded(JUMP_WAIT_TICKS) else pressJump()
                 "SNEAK" -> {
                     val key = mc.options.keyShift
-                    if (! sneakFailsafe.value || ! key.isDown) return@scheduledTask holdKey(key, 4, ::finishImpel)
+                    if (! sneakFailsafe.value || ! key.isDown) {
+                        impelDebug("sneak pressed (was sneaking: ${player.isShiftKeyDown}, screen: ${screenName()})")
+                        return@scheduledTask holdKey(key, 4, ::finishImpel)
+                    }
                     // Already sneaking: the server only sees a new sneak if it sees the key released first.
+                    impelDebug("already sneaking, releasing for $SNEAK_RELEASE_TICKS ticks")
                     key.isDown = false
-                    scheduledTask(SNEAK_RELEASE_TICKS) { holdKey(key, 4, ::finishImpel) }
+                    scheduledTask(SNEAK_RELEASE_TICKS) {
+                        impelDebug("sneak pressed again (screen: ${screenName()})")
+                        holdKey(key, 4, ::finishImpel)
+                    }
                 }
             }
         }
@@ -255,12 +298,20 @@ object AutoSlayer: Feature(
     /** A jump pressed mid-air doesn't count, so wait for the ground (up to [ticksLeft]) and jump right when landing. */
     private fun jumpWhenLanded(ticksLeft: Int) {
         val onGround = mc.player?.onGround() ?: return finishImpel()
-        if (onGround || ticksLeft <= 0) return holdKey(mc.options.keyJump, 3, ::finishImpel)
+        if (onGround || ticksLeft <= 0) return pressJump()
+        if (ticksLeft == JUMP_WAIT_TICKS) impelDebug("in the air, waiting for ground")
         scheduledTask(1) { jumpWhenLanded(ticksLeft - 1) }
+    }
+
+    private fun pressJump() {
+        impelDebug("jump pressed (on ground: ${player.onGround()}, screen: ${screenName()})")
+        holdKey(mc.options.keyJump, 3, ::finishImpel)
     }
 
     private fun finishImpel() {
         impelRunning = false
+        impelDebug("$runningImpel done")
+        runningImpel = null
         val next = pendingImpel ?: return
         pendingImpel = null
         runImpel(next)
@@ -272,7 +323,14 @@ object AutoSlayer: Feature(
         rotationJob = scope.launch {
             try {
                 rotatePitch(pitch)
-                waitTicks(1, PlayerUtils::leftClick)
+                waitTicks(1) {
+                    // A swing that hit nothing in the last 10 ticks would make Minecraft ignore this click.
+                    val missTime = mc.missTime
+                    mc.missTime = 0
+                    impelDebug("click at pitch ${"%.0f".format(player.xRot)}" + (if (missTime > 0) " &e(cleared miss cooldown ${missTime}t)" else "") +
+                        (clickBlocker()?.let { " &cDROPPED: $it" } ?: " &aok"))
+                    PlayerUtils.leftClick()
+                }
                 waitTicks(2)
                 rotatePitch(prevPitch)
             } finally {
@@ -295,6 +353,25 @@ object AutoSlayer: Feature(
             if (progress >= 1) break
             delay(1)
         }
+    }
+
+    /**
+     * Why Minecraft would swallow a left click right now, or null. It ignores clicks for 10 ticks after a swing that
+     * hit nothing (missTime), while an item is in use or the hands are busy, and while a screen is open.
+     */
+    private fun clickBlocker(): String? = when {
+        mc.missTime > 0 -> "miss cooldown ${mc.missTime} ticks"
+        player.isUsingItem -> "using an item"
+        player.isHandsBusy -> "hands busy"
+        mc.gui.screen() != null -> "screen open (${screenName()})"
+        else -> null
+    }
+
+    private fun screenName() = mc.gui.screen()?.javaClass?.simpleName ?: "none"
+
+    /** Impel debug line with the ticks since the order started, so its timing can be read from the log. */
+    private fun impelDebug(message: String) {
+        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Impel +${ticks - impelStartTick}t: &7$message")
     }
 
     /** Presses [key] for [duration] ticks, then releases it unless the player is physically holding it. */
