@@ -21,13 +21,13 @@ object VampireBoss: Shortcuts {
     /** The stake marker is a combining character that can sit between the letters, which breaks "Bloodfiend" matching. */
     val ArmorStand.cleanName get() = name.unformattedText.replace(STAKE_MARKER, "")
 
-    fun findBossStand(ownOnly: Boolean): ArmorStand? {
+    /** Only the boss you spawned: the one with your name on its "SLAYER BOSS" stand. */
+    fun findBossStand(): ArmorStand? {
         val username = mc.user.name
         val nameStands = level.getEntitiesOfClass(ArmorStand::class.java, player.boundingBox.inflate(25.0)) {
             it.hasCustomName() && BOSS_NAME in it.cleanName
         }.sortedBy { it.distanceToSqr(player) }
 
-        if (! ownOnly) return nameStands.firstOrNull()
         return nameStands.firstOrNull { stand -> standsAround(stand).any { username in it.name.unformattedText } }
     }
 

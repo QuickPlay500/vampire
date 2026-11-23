@@ -81,11 +81,6 @@ object AutoSlayer: Feature(
     private val autoStake by ToggleSetting("Auto Steak Stake", true).section("Steak Stake")
         .withDescription("Switches to the Steak Stake in your hotbar once the boss is low enough to be staked.")
 
-    private val onlyOwnBoss by ToggleSetting("Only Own Boss", true).section("General")
-        .withDescription("Only reacts to a boss you spawned.")
-    private val debug by ToggleSetting("Debug", false)
-        .withDescription("Prints titles and boss nametags to chat, to check the detection strings.")
-
     /**
      * The order comes as a title that counts down every 2 ticks, e.g. "Impel: CLICK UP 2.0s".
      * The "IMPEL 0.5s" on the boss nametag is only the warning before it and never contains the order.
@@ -124,11 +119,11 @@ object AutoSlayer: Feature(
             if (mc.player == null || mc.level == null) return@register
             if (LocationUtils.world != WorldType.Rift) return@register reset()
 
-            val boss = findBossStand(onlyOwnBoss.value) ?: return@register reset()
+            val boss = findBossStand() ?: return@register reset()
             bossStand = boss
             val stands = standsAround(boss)
 
-            if (debug.value) {
+            if (Debug.enabled) {
                 stands.map { it.name.unformattedText }.filter(seenDebugNames::add).forEach {
                     ChatUtils.modMessage("&7[Vampire] nametag: &f$it")
                 }
@@ -149,7 +144,7 @@ object AutoSlayer: Feature(
                 else -> return@register
             }.takeUnless(String::isBlank) ?: return@register
 
-            if (debug.value) ChatUtils.modMessage("&7[Vampire] title: &f$text")
+            if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] title: &f$text")
             if (! autoImpel.value) return@register
             val match = impelRegex.find(text.uppercase()) ?: return@register
             handleImpel(match.groupValues[1], match.groupValues[2].toDoubleOrNull())
@@ -167,7 +162,7 @@ object AutoSlayer: Feature(
         if (stakeHandled || busy) return
 
         val slot = PlayerUtils.findHotbarSlot(VampireBoss::isSteakStake) ?: return run {
-            if (debug.value && ! stakeMissingLogged) {
+            if (Debug.enabled && ! stakeMissingLogged) {
                 stakeMissingLogged = true
                 val ids = (0 .. 8).map { player.inventory.getItem(it).skyblockId.ifEmpty { "-" } }
                 ChatUtils.modMessage("&7[Vampire] Stake: &cno stake in hotbar &7$ids")
@@ -176,7 +171,7 @@ object AutoSlayer: Feature(
         stakeHandled = true
         stakeSlot = slot
         player.inventory.selectedSlot = slot
-        if (debug.value) ChatUtils.modMessage("&7[Vampire] Stake: &eswapped to slot ${slot + 1}")
+        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Stake: &eswapped to slot ${slot + 1}")
     }
 
     private fun checkMelon() {
@@ -191,22 +186,22 @@ object AutoSlayer: Feature(
         val remaining = stands.firstNotNullOfOrNull { twinclawsRegex.find(it.name.unformattedText.uppercase()) }
             ?.groupValues?.get(1)?.toDoubleOrNull()
         if (remaining == null) return run {
-            if (twinclawsActive && ! twinclawsHandled && debug.value) ChatUtils.modMessage("&7[Vampire] Ice: &cmissed, timer ended")
+            if (twinclawsActive && ! twinclawsHandled && Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &cmissed, timer ended")
             twinclawsActive = false
             twinclawsHandled = false
         }
-        if (! twinclawsActive && debug.value) ChatUtils.modMessage("&7[Vampire] Ice: &fTwinclaws seen at ${remaining}s")
+        if (! twinclawsActive && Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &fTwinclaws seen at ${remaining}s")
         twinclawsActive = true
         // Checked every tick until used, so a late timer stand or a running Impel only delays the ice.
         if (twinclawsHandled || remaining > iceAt.value || busy) return
 
         val slot = PlayerUtils.findHotbarSlot { it.skyblockId == "HOLY_ICE" } ?: return run {
-            if (debug.value) ChatUtils.modMessage("&7[Vampire] Ice: &cno Holy Ice in hotbar")
+            if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &cno Holy Ice in hotbar")
             twinclawsHandled = true
         }
         twinclawsHandled = true
         useHotbarItem(slot)
-        if (debug.value) ChatUtils.modMessage("&7[Vampire] Ice: &eused at ${remaining}s")
+        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &eused at ${remaining}s")
     }
 
     /**
@@ -232,7 +227,7 @@ object AutoSlayer: Feature(
 
     private fun runImpel(order: String) {
         impelRunning = true
-        if (debug.value) ChatUtils.modMessage("&7[Vampire] Impel: &e$order")
+        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Impel: &e$order")
 
         scheduledTask(impelDelay.value) {
             when (order) {
@@ -326,7 +321,6 @@ object AutoSlayer: Feature(
             }
         }
     }
-
 
     private fun reset() {
         bossStand = null
