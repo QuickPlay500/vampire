@@ -43,9 +43,13 @@ Shows a title on screen for:
 
 Warns when a Blood Ichor of your boss spawns (Tier V) with a **Notification** title. It deals 100❤ when its 25s timer runs out. Also shows where the Blood Ichors are, through walls: a **Tracer** from your crosshair like the M7 dragon tracer and a **Render Beacon** beam with a box. The color is configurable.
 
+### Auto Tiny Dancer
+
+Full auto Tiny Dancer with random delays for everything to look quite human.
+
 ### Debug
 
-Turn this on to print titles, boss nametags and what Auto Slayer does (Impel orders, Holy Ice, stake swaps) to chat. Useful if something doesn't trigger.
+Turn this on to print titles, boss nametags and what Auto Slayer does (Impel orders, Holy Ice, stake swaps) to chat. Useful if something doesn't trigger. Also prints outout from auto Tiny Dancer
 
 ## Build
 
