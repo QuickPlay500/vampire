@@ -18,7 +18,7 @@ import java.util.Arrays;
 
 /**
     Mixins to add a category to the config gui
-    String enumName = "VAMPIRE";
+    String enumName = "RIFT";
  */
 @Mixin(CategoryType.class)
 public class MixinCategoryType {
@@ -33,7 +33,7 @@ public class MixinCategoryType {
             unsafeField.setAccessible(true);
             Unsafe unsafe = (Unsafe) unsafeField.get(null);
 
-            String enumName = "VAMPIRE";
+            String enumName = "RIFT";
             ArrayList<CategoryType> valuesList = new ArrayList<>(Arrays.asList($VALUES));
             int newOrdinal = valuesList.size();
 

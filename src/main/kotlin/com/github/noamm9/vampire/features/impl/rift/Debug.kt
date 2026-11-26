@@ -1,4 +1,4 @@
-package com.github.noamm9.vampire.features.impl.vampire
+package com.github.noamm9.vampire.features.impl.rift
 
 import com.github.noamm9.event.impl.ChatMessageEvent
 import com.github.noamm9.event.impl.EntityUnloadEvent
@@ -180,6 +180,6 @@ object Debug: Feature(
 
     private fun log(message: String) {
         val start = ichorStartTick
-        ChatUtils.modMessage("&7[Vampire] Ichor${if (start != null) " +${ticks - start}t" else ""}: $message")
+        ChatUtils.modMessage("&7[Rift] Ichor${if (start != null) " +${ticks - start}t" else ""}: $message")
     }
 }

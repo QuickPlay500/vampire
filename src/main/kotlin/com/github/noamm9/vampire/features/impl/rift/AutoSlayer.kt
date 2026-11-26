@@ -1,4 +1,4 @@
-package com.github.noamm9.vampire.features.impl.vampire
+package com.github.noamm9.vampire.features.impl.rift
 
 import com.github.noamm9.compat.KEYBOARD_TYPE
 import com.github.noamm9.compat.isKeyDown
@@ -142,10 +142,10 @@ object AutoSlayer: Feature(
 
             if (Debug.enabled) {
                 stands.map { it.name.unformattedText }.filter(seenDebugNames::add).forEach {
-                    ChatUtils.modMessage("&7[Vampire] nametag: &f$it")
+                    ChatUtils.modMessage("&7[Rift] nametag: &f$it")
                 }
                 // Raw name with formatting codes, so the stake marker / bold styling shows up.
-                boss.name.string.takeIf(seenDebugNames::add)?.let { ChatUtils.modMessage("&7[Vampire] boss: &f${it.replace("§", "¦")}") }
+                boss.name.string.takeIf(seenDebugNames::add)?.let { ChatUtils.modMessage("&7[Rift] boss: &f${it.replace("§", "¦")}") }
             }
 
             if (autoStake.value) checkStake(boss)
@@ -161,11 +161,11 @@ object AutoSlayer: Feature(
                 else -> return@register
             }.takeUnless(String::isBlank) ?: return@register
             if (bossStand == null) {
-                if (Debug.enabled && "IMPEL" in text.uppercase()) ChatUtils.modMessage("&7[Vampire] Impel: &ctitle ignored, boss not detected: &f$text")
+                if (Debug.enabled && "IMPEL" in text.uppercase()) ChatUtils.modMessage("&7[Rift] Impel: &ctitle ignored, boss not detected: &f$text")
                 return@register
             }
 
-            if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] title: &f$text")
+            if (Debug.enabled) ChatUtils.modMessage("&7[Rift] title: &f$text")
             if (! autoImpel.value) return@register
             val match = impelRegex.find(text.uppercase()) ?: return@register
             handleImpel(match.groupValues[1], match.groupValues[2].toDoubleOrNull())
@@ -186,13 +186,13 @@ object AutoSlayer: Feature(
             if (Debug.enabled && ! stakeMissingLogged) {
                 stakeMissingLogged = true
                 val ids = (0 .. 8).map { player.inventory.getItem(it).skyblockId.ifEmpty { "-" } }
-                ChatUtils.modMessage("&7[Vampire] Stake: &cno stake in hotbar &7$ids")
+                ChatUtils.modMessage("&7[Rift] Stake: &cno stake in hotbar &7$ids")
             }
         }
         stakeHandled = true
         stakeSlot = slot
         player.inventory.selectedSlot = slot
-        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Stake: &eswapped to slot ${slot + 1}")
+        if (Debug.enabled) ChatUtils.modMessage("&7[Rift] Stake: &eswapped to slot ${slot + 1}")
     }
 
     private fun checkMelon() {
@@ -211,7 +211,7 @@ object AutoSlayer: Feature(
         val slot = PlayerUtils.findHotbarSlot { it.skyblockId in tubaIds } ?: return
         lastTubaTick = ticks
         useHotbarItem(slot)
-        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Tuba: &eused &7(mana ${ActionBarParser.currentMana}/${ActionBarParser.maxMana})")
+        if (Debug.enabled) ChatUtils.modMessage("&7[Rift] Tuba: &eused &7(mana ${ActionBarParser.currentMana}/${ActionBarParser.maxMana})")
     }
 
     private fun checkTwinclaws(stands: List<ArmorStand>) {
@@ -220,23 +220,23 @@ object AutoSlayer: Feature(
         if (remaining == null) return run {
             // The timer stand drops out for a tick or two while the boss moves; only a longer gap ends the attack.
             if (! twinclawsActive || ticks - lastTwinclawsTick < TWINCLAWS_GONE_TICKS) return
-            if (! twinclawsHandled && Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &cmissed, timer ended")
+            if (! twinclawsHandled && Debug.enabled) ChatUtils.modMessage("&7[Rift] Ice: &cmissed, timer ended")
             twinclawsActive = false
             twinclawsHandled = false
         }
-        if (! twinclawsActive && Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &fTwinclaws seen at ${remaining}s")
+        if (! twinclawsActive && Debug.enabled) ChatUtils.modMessage("&7[Rift] Ice: &fTwinclaws seen at ${remaining}s")
         twinclawsActive = true
         lastTwinclawsTick = ticks
         // Checked every tick until used, so a late timer stand or a running Impel only delays the ice.
         if (twinclawsHandled || remaining > iceAt.value || busy) return
 
         val slot = PlayerUtils.findHotbarSlot { it.skyblockId == "HOLY_ICE" } ?: return run {
-            if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &cno Holy Ice in hotbar")
+            if (Debug.enabled) ChatUtils.modMessage("&7[Rift] Ice: &cno Holy Ice in hotbar")
             twinclawsHandled = true
         }
         twinclawsHandled = true
         useHotbarItem(slot)
-        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Ice: &eused at ${remaining}s")
+        if (Debug.enabled) ChatUtils.modMessage("&7[Rift] Ice: &eused at ${remaining}s")
     }
 
     /**
@@ -269,7 +269,7 @@ object AutoSlayer: Feature(
         impelRunning = true
         runningImpel = order
         impelStartTick = ticks
-        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Impel: &e$order")
+        if (Debug.enabled) ChatUtils.modMessage("&7[Rift] Impel: &e$order")
 
         scheduledTask(impelDelay.value) {
             impelDebug("executing $order")
@@ -371,7 +371,7 @@ object AutoSlayer: Feature(
 
     /** Impel debug line with the ticks since the order started, so its timing can be read from the log. */
     private fun impelDebug(message: String) {
-        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Impel +${ticks - impelStartTick}t: &7$message")
+        if (Debug.enabled) ChatUtils.modMessage("&7[Rift] Impel +${ticks - impelStartTick}t: &7$message")
     }
 
     /** Presses [key] for [duration] ticks, then releases it unless the player is physically holding it. */

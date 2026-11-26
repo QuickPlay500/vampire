@@ -1,4 +1,4 @@
-package com.github.noamm9.vampire.features.impl.vampire
+package com.github.noamm9.vampire.features.impl.rift
 
 import com.github.noamm9.config.types.ColorSetting
 import com.github.noamm9.config.types.SliderSetting

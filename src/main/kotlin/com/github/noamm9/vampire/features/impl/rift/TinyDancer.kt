@@ -1,4 +1,4 @@
-package com.github.noamm9.vampire.features.impl.vampire
+package com.github.noamm9.vampire.features.impl.rift
 
 import com.github.noamm9.compat.KEYBOARD_TYPE
 import com.github.noamm9.compat.isKeyDown
@@ -48,7 +48,7 @@ object TinyDancer: Feature(
     private val ping by SliderSetting("Ping", 100, 0, 300, 5, " ms")
     private val fullDance by ToggleSetting("Full Dance", true)
         .withDescription("Keeps dancing until you get Tiny Dancer.")
-    private val earlyRelease by SliderSetting("Early Release", 0.15, 0.0, 0.5, 0.05, " blocks")
+    private val earlyRelease by SliderSetting("Early Release", 0.3, 0.0, 0.5, 0.05, " blocks")
         .withDescription("Lets go of the movement keys this much earlier, so you slide onto the block instead of overshooting and walking back.")
     private val landingSpread by SliderSetting("Landing Spread", 0.2, 0.0, 0.3, 0.05, " blocks")
         .withDescription("Aims up to this far off the block center, randomly, so you don't land on the exact middle every time.")
@@ -182,7 +182,7 @@ object TinyDancer: Feature(
     private fun finish(message: String) {
         finished = true
         stopDancing()
-        ChatUtils.modMessage("&7[Vampire] Tiny Dancer: $message")
+        ChatUtils.modMessage("&7[Rift] Tiny Dancer: $message")
     }
 
     private fun stopDancing() {
@@ -200,7 +200,7 @@ object TinyDancer: Feature(
         val parts = text.split(" and ").map { it.trim().lowercase() }
         val known = setOf("move!", "sneak!", "stand!", "jump!", "don't jump!", "punch!")
         if (parts.none { it in known }) return
-        parts.filter { it !in known }.forEach { ChatUtils.modMessage("&7[Vampire] Tiny Dancer: &eunknown order \"$it\"") }
+        parts.filter { it !in known }.forEach { ChatUtils.modMessage("&7[Rift] Tiny Dancer: &eunknown order \"$it\"") }
 
         // A lone "Punch!" on the check beat of a punch order is the cue to punch, not the next order.
         val current = order
@@ -360,7 +360,7 @@ object TinyDancer: Feature(
     }
 
     private fun debug(message: String) {
-        if (Debug.enabled) ChatUtils.modMessage("&7[Vampire] Tiny Dancer: &7$message")
+        if (Debug.enabled) ChatUtils.modMessage("&7[Rift] Tiny Dancer: &7$message")
     }
 
     override fun onDisable() {
