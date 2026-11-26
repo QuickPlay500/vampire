@@ -33,7 +33,7 @@ import net.minecraft.world.phys.Vec3
  * and shortly after, name changes of those entities, sounds, a particle summary, and chat/titles mentioning Ichor.
  */
 object Debug: Feature(
-    description = "Prints titles, boss nametags and what Auto Slayer does to chat, to check the detection strings. Also records the Blood Ichor attack.",
+    description = "Prints Debug from Auto Slayer, Blood Ichor and Tiny Dancer in chat.",
     name = "Debug",
     toggled = false
 ) {
