@@ -37,12 +37,12 @@ import kotlin.random.Random
  *
  * Every order arrives as a subtitle on a beat, and the server checks it on the next beat 20 ticks later. Each order
  * means "step to the next block of the square", plus a pose for the check: sneaking (Sneak!) or not (Stand!),
- * mid-air (Jump!) or on the ground (Don't jump!), and Punch! wants a left click. That punch is cued by a second
- * subtitle, a lone "Punch!" on the check beat, which is not an order of its own.
+ * mid-air (Jump!) or on the ground (Don't jump!), and Punch! wants a left click shortly before the lone
+ * "Punch!" subtitle that shows on the check beat. That subtitle is not an order of its own.
  */
 object TinyDancer: Feature(
     description = "Dances the Mirrorverse Dance Room for you.",
-    name = "Tiny Dancer",
+    name = "Auto Dancer",
     toggled = false
 ) {
     private val ping by SliderSetting("Ping", 100, 0, 300, 5, " ms")
@@ -56,10 +56,8 @@ object TinyDancer: Feature(
         .withDescription("Waits a random time in this range after each order before walking, like a player's reaction time.")
     private val delayFailsafe by ToggleSetting("Delay Failsafe", false)
         .withDescription("Cuts the delay short when it would be too late to reach the block (and stand still before a jump) in time for the check.")
-    private val punchDelay by RangeSliderSetting("Punch Delay", 50 to 80, 0, 300, 10, " ms")
-        .withDescription("Punches a random time in this range after the \"Punch!\" cue.")
-    private val doublePunch by ToggleSetting("Double Punch", true)
-        .withDescription("Also punches on the order itself (\"... and Punch!\"), not only on the \"Punch!\" cue on the check beat. Both use the Punch Delay.")
+    private val punchTiming by RangeSliderSetting("Punch Timing", 0 to 50, -100, 150, 10, " ms")
+        .withDescription("When your punch should reach the server, relative to the check beat (the \"Punch!\" subtitle). Your ping is taken into account, so this works for any ping. Picked at random in this range.")
 
     /** Centers of the four dance blocks, in the order they are danced. The first one is where the dance starts. */
     private val path = listOf(
@@ -89,9 +87,9 @@ object TinyDancer: Feature(
     /** Further than this from the center you are at most 0.1 inside the block, so keep walking whatever the slide estimate says. */
     private const val INSIDE = 0.4
 
-    private class Order(val tick: Long, val sneak: Boolean, val jump: Boolean, val punch: Boolean) {
+    private class Order(val tick: Long, val sneak: Boolean, val jump: Boolean, val punch: Boolean, val punchAt: Long) {
         var jumped = false
-        var punchCued = false
+        var punched = false
     }
 
     private var ticks = 0L
@@ -109,8 +107,6 @@ object TinyDancer: Feature(
     private var order: Order? = null
     private var sneaking = false
     private var jumpTicks = 0
-    /** Tick to punch on, once the "Punch!" cue came. */
-    private var punchTick: Long? = null
 
     private val movementKeys get() = with(mc.options) { listOf(keyUp, keyDown, keyLeft, keyRight, keyShift, keyJump) }
     private val pingTicks get() = (ping.value / 50.0).roundToInt()
@@ -129,10 +125,6 @@ object TinyDancer: Feature(
             if (! inRoom || finished || ! rotated) return@register
 
             order?.let(::runOrder)
-            if (punchTick?.let { ticks >= it } == true) {
-                punchTick = null
-                punch()
-            }
             // A key held in the air carries you on past the block, so only steer on the ground.
             if (ticks >= walkTick && player.onGround() && jumpTicks == 0) target?.let(::steer)
             else with(mc.options) { listOf(keyUp, keyDown, keyLeft, keyRight).forEach { it.isDown = false } }
@@ -191,7 +183,6 @@ object TinyDancer: Feature(
         targetCenter = null
         sneaking = false
         jumpTicks = 0
-        punchTick = null
         movementKeys.forEach { it.isDown = isPhysicallyDown(it) }
     }
 
@@ -202,11 +193,13 @@ object TinyDancer: Feature(
         if (parts.none { it in known }) return
         parts.filter { it !in known }.forEach { ChatUtils.modMessage("&7[Rift] Tiny Dancer: &eunknown order \"$it\"") }
 
-        // A lone "Punch!" on the check beat of a punch order is the cue to punch, not the next order.
-        val current = order
-        if (parts == listOf("punch!") && current != null && current.punch && ! current.punchCued) {
-            current.punchCued = true
-            schedulePunch("+${ticks - current.tick}t punch cue")
+        // A lone "Punch!" shows on the check beat of a punch order. It isn't an order; punch now if that hasn't happened yet.
+        if (parts == listOf("punch!")) {
+            val current = order
+            if (current != null && current.punch && ! current.punched) {
+                current.punched = true
+                punch("+${ticks - current.tick}t punch on the \"Punch!\" subtitle (planned for +${current.punchAt}t)")
+            }
             return
         }
 
@@ -224,16 +217,11 @@ object TinyDancer: Feature(
         walkTick = ticks + delayTicks
         // Sneaking walks at 30% speed, so let go of sneak to walk and sneak again once on the block.
         sneaking = false
-        order = Order(ticks, sneak = "sneak!" in parts, jump = jump, punch = "punch!" in parts)
+        // The check beat, and with it the "Punch!" subtitle, comes CHECK_TICKS after the order. The order reached you
+        // half a ping late and the punch needs another half to reach the server, so send it a whole ping early.
+        val punchAt = (CHECK_TICKS - pingTicks + (punchTiming.random() / 50.0).roundToInt()).toLong()
+        order = Order(ticks, sneak = "sneak!" in parts, jump = jump, punch = "punch!" in parts, punchAt = punchAt)
         debug("order &e$text&7, walking to ${"%.2f".format(next.x)} ${"%.2f".format(next.z)} in ${delayTicks}t")
-        if ("punch!" in parts && doublePunch.value) schedulePunch("order punch")
-    }
-
-    /** Punches a random [punchDelay] from now. Punches happen on whole ticks, so 0 punches right away. */
-    private fun schedulePunch(reason: String) {
-        val delayTicks = (punchDelay.random() / 50.0).roundToInt()
-        debug("$reason, punching in ${delayTicks}t")
-        if (delayTicks == 0) punch() else punchTick = ticks + delayTicks
     }
 
     private fun runOrder(order: Order) {
@@ -245,6 +233,10 @@ object TinyDancer: Feature(
         if (order.sneak && ! sneaking && (arrived || elapsed >= lastChance)) {
             sneaking = true
             debug("+${elapsed}t sneak (on block: $arrived)")
+        }
+        if (order.punch && ! order.punched && elapsed >= order.punchAt) {
+            order.punched = true
+            punch("+${elapsed}t punch (on block: $arrived)")
         }
 
         if (elapsed == (CHECK_TICKS - pingTicks).toLong()) {
@@ -267,7 +259,7 @@ object TinyDancer: Feature(
         if (elapsed > CHECK_TICKS + 5) this.order = null
     }
 
-    private fun punch() {
+    private fun punch(message: String) {
         val blocker = when {
             player.isUsingItem -> "using an item"
             player.isHandsBusy -> "hands busy"
@@ -277,7 +269,7 @@ object TinyDancer: Feature(
         // A swing that hit nothing in the last 10 ticks would make Minecraft ignore this click.
         mc.missTime = 0
         PlayerUtils.leftClick()
-        debug("punch" + (blocker?.let { " &c(may be dropped: $it)" } ?: ""))
+        debug(message + (blocker?.let { " &c(may be dropped: $it)" } ?: ""))
     }
 
     /** Holds the movement keys that bring you to [target], letting go early enough to slide onto its center. */
